@@ -1,0 +1,74 @@
+# SimC Windows build — GitHub Actions recipe.
+#
+# WHERE THIS GOES: the SEPARATE public `simc-build` repo, at path:
+#     .github/workflows/build-simc.yml
+# (This copy in the app repo is just a backup/reference — it does NOT run here.)
+#
+# WHAT IT DOES: on a schedule (and on demand), it spins up a real Windows machine on GitHub,
+# clones SimulationCraft's official `midnight` branch (same source Harry builds locally), compiles
+# the simc CLI in Release, and publishes simc.exe as a downloadable Release asset + artifact.
+# Contains NO app code — only a build recipe for SimC's already-public GPL source.
+
+name: Build SimC (Windows)
+
+on:
+  workflow_dispatch: {} # lets you run it by hand from the Actions tab ("Run workflow")
+  schedule:
+    - cron: '0 6 * * *' # daily 06:00 UTC — picks up new midnight-branch commits
+
+permissions:
+  contents: write # needed to publish the Release
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Check out SimulationCraft (midnight branch)
+        uses: actions/checkout@v4
+        with:
+          repository: simulationcraft/simc
+          ref: midnight
+
+      - name: Configure (CMake, Release)
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build the simc CLI (not the Qt GUI)
+        run: cmake --build build --config Release --target simc --parallel
+
+      - name: Locate simc.exe
+        id: find
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem -Path build -Recurse -Filter simc.exe | Select-Object -First 1
+          if (-not $exe) { throw 'simc.exe not found after build' }
+          "path=$($exe.FullName)" >> $env:GITHUB_OUTPUT
+          Write-Host "Found $($exe.FullName)"
+
+      - name: Read the WoW build version (for the release tag)
+        id: ver
+        shell: pwsh
+        run: |
+          $m = Select-String -Path engine/dbc/generated/permanent_enchant.inc -Pattern 'wow build ([\d.]+)' | Select-Object -First 1
+          $v = if ($m) { $m.Matches[0].Groups[1].Value } else { 'unknown' }
+          "wow=$v" >> $env:GITHUB_OUTPUT
+          Write-Host "WoW build $v"
+
+      - name: Stage the binary
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item "${{ steps.find.outputs.path }}" dist/simc.exe
+
+      - name: Upload as an artifact (downloadable from this run)
+        uses: actions/upload-artifact@v4
+        with:
+          name: simc-windows
+          path: dist/simc.exe
+
+      - name: Publish/update the "latest" Release (stable download URL for the app)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: SimC latest (WoW ${{ steps.ver.outputs.wow }})
+          body: Auto-built from simulationcraft/simc@midnight — WoW build ${{ steps.ver.outputs.wow }}.
+          files: dist/simc.exe
