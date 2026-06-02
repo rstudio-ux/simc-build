@@ -30,7 +30,7 @@ jobs:
           ref: midnight
 
       - name: Configure (CMake, Release)
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_GUI=OFF -DBUILD_TESTING=OFF
 
       - name: Build the simc CLI (not the Qt GUI)
         run: cmake --build build --config Release --target simc --parallel
