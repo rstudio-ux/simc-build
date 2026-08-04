@@ -8,6 +8,12 @@
 # clones SimulationCraft's official `midnight` branch (same source Harry builds locally), compiles
 # the simc CLI in Release, and publishes simc.exe as a downloadable Release asset + artifact.
 # Contains NO app code — only a build recipe for SimC's already-public GPL source.
+#
+# KEEPALIVE: this workflow only ever checks out simulationcraft/simc, so nothing ever pushes to
+# THIS repo. GitHub auto-disables scheduled workflows after 60 days with no activity on the repo
+# itself (successful cron runs don't count) — that's what happened 2026-08. The final step below
+# checks out this repo too and commits a tiny build-status marker, which counts as activity and
+# keeps the daily schedule alive indefinitely.
 
 name: Build SimC (Windows)
 
@@ -17,19 +23,24 @@ on:
     - cron: '0 6 * * *' # daily 06:00 UTC — picks up new midnight-branch commits
 
 permissions:
-  contents: write # needed to publish the Release
+  contents: write # needed to publish the Release + push the keepalive commit
 
 jobs:
   build:
     runs-on: windows-latest
     steps:
+      - name: Check out this repo (self, for the keepalive commit)
+        uses: actions/checkout@v4
+        with:
+          path: self
+
       - name: Check out SimulationCraft (midnight branch)
         uses: actions/checkout@v4
         with:
           repository: simulationcraft/simc
           ref: midnight
 
-      - name: Configure (CMake, Release)
+      - name: Configure (CMake, Release — CLI only, no Qt GUI / no tests)
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_GUI=OFF -DBUILD_TESTING=OFF
 
       - name: Build the simc CLI (not the Qt GUI)
@@ -72,3 +83,19 @@ jobs:
           name: SimC latest (WoW ${{ steps.ver.outputs.wow }})
           body: Auto-built from simulationcraft/simc@midnight — WoW build ${{ steps.ver.outputs.wow }}.
           files: dist/simc.exe
+
+      - name: Keep the repo active (commit a build-status marker)
+        shell: pwsh
+        working-directory: self
+        run: |
+          $marker = @{
+            lastBuild = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+            wowBuild  = '${{ steps.ver.outputs.wow }}'
+            status    = 'ok'
+          } | ConvertTo-Json
+          Set-Content -Path last-build.json -Value $marker
+          git config user.name 'simc-build-bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git add last-build.json
+          git commit -m "Build $(Get-Date -Format 'yyyy-MM-dd') — WoW ${{ steps.ver.outputs.wow }}"
+          git push
