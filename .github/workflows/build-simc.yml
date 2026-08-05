@@ -29,11 +29,6 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-      - name: Check out this repo (self, for the keepalive commit)
-        uses: actions/checkout@v4
-        with:
-          path: self
-
       - name: Check out SimulationCraft (midnight branch)
         uses: actions/checkout@v4
         with:
@@ -83,6 +78,14 @@ jobs:
           name: SimC latest (WoW ${{ steps.ver.outputs.wow }})
           body: Auto-built from simulationcraft/simc@midnight — WoW build ${{ steps.ver.outputs.wow }}.
           files: dist/simc.exe
+
+      # Must stay AFTER the simc checkout: that earlier step has no `path:`, so it checks
+      # out to $GITHUB_WORKSPACE root and wipes any other directories there (incl. `self/`)
+      # if it runs afterwards. Broke the keepalive step this way on 2026-08-05.
+      - name: Check out this repo (self, for the keepalive commit)
+        uses: actions/checkout@v4
+        with:
+          path: self
 
       - name: Keep the repo active (commit a build-status marker)
         shell: pwsh
